@@ -1,0 +1,234 @@
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.*;
+import java.util.Stack;
+
+public class Calculator extends JFrame {
+    private final JTextField display;
+    private boolean resetNext = false;
+
+    public Calculator() {
+        setTitle("Modern Calculator");
+        setDefaultCloseOperation(EXIT_ON_CLOSE);
+        setSize(400, 550);
+        setResizable(false);
+        setLocationRelativeTo(null);
+
+        display = new JTextField("0");
+        display.setFont(new Font("Inter", Font.BOLD, 30));
+        display.setBackground(new Color(30, 30, 30));
+        display.setForeground(new Color(224, 224, 224));
+        display.setHorizontalAlignment(SwingConstants.RIGHT);
+        display.setEditable(false);
+        display.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+
+        JPanel buttonPanel = new JPanel();
+        buttonPanel.setLayout(new GridLayout(5, 4, 10, 10));
+        buttonPanel.setBackground(new Color(18, 18, 18));
+        String[] buttons = {
+                "C", "⌫", "%", "/",
+                "7", "8", "9", "*",
+                "4", "5", "6", "-",
+                "1", "2", "3", "+",
+                "0", ".", "=", 
+        };
+
+        for (String text : buttons) {
+            JButton btn = createButton(text);
+            if (text.equals("0")) {
+                btn.setPreferredSize(new Dimension(180, 64));
+                buttonPanel.add(btn);
+            } else {
+                buttonPanel.add(btn);
+            }
+        }
+
+        // Equal button manually added for 2-column span
+        JButton equalBtn = createButton("=");
+        equalBtn.setPreferredSize(new Dimension(180, 64));
+        buttonPanel.add(equalBtn);
+
+        getContentPane().setLayout(new BorderLayout(16, 16));
+        getContentPane().setBackground(new Color(18, 18, 18));
+        getContentPane().add(display, BorderLayout.NORTH);
+        getContentPane().add(buttonPanel, BorderLayout.CENTER);
+
+        setVisible(true);
+
+        // Keyboard support
+        KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(e -> {
+            if (e.getID() == KeyEvent.KEY_PRESSED) {
+                handleKeyPress(e);
+            }
+            return false;
+        });
+    }
+
+    private JButton createButton(String text) {
+        JButton btn = new JButton(text);
+        btn.setFont(new Font("Inter", Font.BOLD, 20));
+        btn.setFocusPainted(false);
+        btn.setForeground(new Color(224, 224, 224));
+        btn.setBackground(getButtonColor(text));
+        btn.setBorder(BorderFactory.createEmptyBorder());
+        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        btn.addActionListener(e -> handleInput(text));
+        return btn;
+    }
+
+    private Color getButtonColor(String text) {
+        if ("/*-+%".contains(text)) {
+            return new Color(55, 55, 55);
+        } else if ("=".equals(text)) {
+            return new Color(74, 222, 128);
+        } else if ("C".equals(text) || "⌫".equals(text)) {
+            return new Color(44, 44, 44);
+        } else {
+            return new Color(28, 28, 28);
+        }
+    }
+
+    private void handleInput(String input) {
+        String current = display.getText();
+
+        if (resetNext) {
+            current = "0";
+            resetNext = false;
+        }
+
+        switch (input) {
+            case "C":
+                display.setText("0");
+                return;
+            case "⌫":
+                if (current.length() > 1) {
+                    display.setText(current.substring(0, current.length() - 1));
+                } else {
+                    display.setText("0");
+                }
+                return;
+            case "=":
+                try {
+                    String expr = current.replace("×", "*").replace("÷", "/");
+                    expr = expr.replaceAll("(\\d+)%", "($1/100)");
+                    double result = eval(expr);
+                    display.setText(removeTrailingZero(result));
+                    resetNext = true;
+                } catch (Exception ex) {
+                    display.setText("Error");
+                    resetNext = true;
+                }
+                return;
+        }
+
+        if ("+-*/%".contains(input)) {
+            if (current.endsWith("+") || current.endsWith("-") ||
+                current.endsWith("*") || current.endsWith("/") || current.endsWith("%")) {
+                display.setText(current.substring(0, current.length() - 1) + input);
+            } else {
+                display.setText(current + input);
+            }
+        } else if (".".equals(input)) {
+            if (!current.endsWith(".")) {
+                display.setText(current + ".");
+            }
+        } else {
+            if ("0".equals(current)) {
+                display.setText(input);
+            } else {
+                display.setText(current + input);
+            }
+        }
+    }
+
+    private void handleKeyPress(KeyEvent e) {
+        String key = String.valueOf(e.getKeyChar());
+        if (Character.isDigit(e.getKeyChar()) || "+-*/.%".contains(key)) {
+            handleInput(key);
+        } else if (e.getKeyCode() == KeyEvent.VK_ENTER || key.equals("=")) {
+            handleInput("=");
+        } else if (e.getKeyCode() == KeyEvent.VK_BACK_SPACE) {
+            handleInput("⌫");
+        } else if (key.equalsIgnoreCase("c")) {
+            handleInput("C");
+        }
+    }
+
+    private double eval(String expr) {
+        return new Object() {
+            int pos = -1, ch;
+
+            void nextChar() { ch = (++pos < expr.length()) ? expr.charAt(pos) : -1; }
+
+            boolean eat(int charToEat) {
+                while (ch == ' ') nextChar();
+                if (ch == charToEat) {
+                    nextChar();
+                    return true;
+                }
+                return false;
+            }
+
+            double parse() {
+                nextChar();
+                double x = parseExpression();
+                if (pos < expr.length()) throw new RuntimeException("Unexpected: " + (char) ch);
+                return x;
+            }
+
+            // Grammar:
+            // expression = term | expression `+` term | expression `-` term
+            // term = factor | term `*` factor | term `/` factor
+            // factor = `+` factor | `-` factor | number | `(` expression `)`
+            double parseExpression() {
+                double x = parseTerm();
+                while (true) {
+                    if (eat('+')) x += parseTerm();
+                    else if (eat('-')) x -= parseTerm();
+                    else return x;
+                }
+            }
+
+            double parseTerm() {
+                double x = parseFactor();
+                while (true) {
+                    if (eat('*')) x *= parseFactor();
+                    else if (eat('/')) x /= parseFactor();
+                    else return x;
+                }
+            }
+
+            double parseFactor() {
+                if (eat('+')) return parseFactor();
+                if (eat('-')) return -parseFactor();
+
+                double x;
+                int startPos = this.pos;
+
+                if (eat('(')) {
+                    x = parseExpression();
+                    eat(')');
+                } else if ((ch >= '0' && ch <= '9') || ch == '.') {
+                    while ((ch >= '0' && ch <= '9') || ch == '.') nextChar();
+                    x = Double.parseDouble(expr.substring(startPos, this.pos));
+                } else {
+                    throw new RuntimeException("Unexpected: " + (char) ch);
+                }
+
+                return x;
+            }
+        }.parse();
+    }
+
+    private String removeTrailingZero(double number) {
+        if (number == (long) number) {
+            return String.format("%d", (long) number);
+        } else {
+            return String.format("%s", number);
+        }
+    }
+
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(Calculator::new);
+    }
+}
